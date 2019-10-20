@@ -43,6 +43,7 @@ public:
 
     void setDeviceID(int deviceID);
     void setDeviceUniqueID(const std::string &uniqueID);
+    int getDeviceIDByUniqueID(const std::string &uniqueID) const;
     void setDesiredFrameRate(int capRate);
     bool setPixelFormat(ofPixelFormat PixelFormat);
 
@@ -62,7 +63,7 @@ public:
     }
 
     bool isInitialized() const;
-
+    
     void updatePixelsCB();
     std::vector <ofVideoDevice> listDevices() const;
     ofPixelFormat getPixelFormat() const;

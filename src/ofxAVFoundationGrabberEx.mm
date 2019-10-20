@@ -44,7 +44,6 @@ class ofxAVFoundationGrabberEx;
 - (void)lockExposureAndFocus;
 - (std::vector <std::string>)listDevices;
 - (void)setDevice:(int)device_;
-- (int)setDeviceUniqueID:(const std::string &)uniqueID_;
 - (void)eraseGrabberPtr;
 
 -(CGImageRef)getCurrentFrame;
@@ -240,7 +239,7 @@ class ofxAVFoundationGrabberEx;
 	return NO;
 }
 
--(void) startCapture{
+-(void)startCapture{
 
 	[self.captureSession startRunning];
 
@@ -251,7 +250,7 @@ class ofxAVFoundationGrabberEx;
 
 }
 
--(void) lockExposureAndFocus{
+-(void)lockExposureAndFocus{
 
 	[captureInput.device lockForConfiguration:nil];
 
@@ -301,13 +300,11 @@ class ofxAVFoundationGrabberEx;
 	deviceID = device_;
 }
 
-- (int)setDeviceUniqueID:(const std::string &)uniqueID_ {
++ (int)getDeviceIDByUniqueID:(const std::string &)uniqueID_ {
     NSArray * devices = [AVCaptureDevice devicesWithMediaType:AVMediaTypeVideo];
     int i = 0;
-    ofLogNotice() << devices.count;
     for(AVCaptureDevice *captureDevice in devices) {
         if([captureDevice.uniqueID isEqualToString:@(uniqueID_.c_str())]) {
-            deviceID = i;
             return i;
         }
         i++;
@@ -559,16 +556,16 @@ void ofxAVFoundationGrabberEx::setDeviceID(int deviceID) {
 }
 
 void ofxAVFoundationGrabberEx::setDeviceUniqueID(const std::string &uniqueID) {
-    if(grabber_ == nil) {
-        grabber_ = [[OSXVideoGrabberEx alloc] init];
+    setDeviceID(getDeviceIDByUniqueID(uniqueID));
+}
+
+int ofxAVFoundationGrabberEx::getDeviceIDByUniqueID(const std::string &uniqueID) const {
+    int device_id = [OSXVideoGrabberEx getDeviceIDByUniqueID:uniqueID];
+    if(device_id == -1) {
+        ofLogWarning("ofxAVFoundationGrabberEx") << "Unique ID \"" << uniqueID << "\" not found.";
+        return 0;
     }
-    int device_ = [grabber setDeviceUniqueID:uniqueID];
-    if(device_ == -1) {
-        ofLogWarning("ofxAVFoundationGrabberEx") << "device id: " << uniqueID << " not found.";
-        device = 0;
-    } else {
-        device = device_;
-    }
+    return device_id;
 }
 
 bool ofxAVFoundationGrabberEx::setPixelFormat(ofPixelFormat PixelFormat) {
