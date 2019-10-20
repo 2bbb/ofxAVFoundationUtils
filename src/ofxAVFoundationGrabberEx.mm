@@ -15,11 +15,15 @@
 #import <CoreMedia/CoreMedia.h>
 #import <CoreVideo/CoreVideo.h>
 
+#include "ofxAVFoundationUtilityFunctions.h"
+
 #define grabber ((OSXVideoGrabberEx *)grabber_)
 
-class ofxAVFoundationGrabberEx;
+class GrabberEx;
 
-@interface OSXVideoGrabberEx : NSObject <AVCaptureVideoDataOutputSampleBufferDelegate> {
+@interface OSXVideoGrabberEx : NSObject <
+    AVCaptureVideoDataOutputSampleBufferDelegate
+> {
     
 @public
     CGImageRef currentFrame;
@@ -35,7 +39,7 @@ class ofxAVFoundationGrabberEx;
     AVCaptureDevice             *device;
     AVCaptureSession            *captureSession;
     
-    ofxAVFoundationGrabberEx * grabberPtr;
+    ofxAVFoundationGrabberEx *grabberPtr;
 }
 
 - (BOOL)setupCapture:(int)framerate capWidth:(int)w capHeight:(int)h;
@@ -128,13 +132,13 @@ class ofxAVFoundationGrabberEx;
 					bestFormat = format;
 				}
 
-				ofLogVerbose("ofxAVFoundationGrabberEx") << " supported dimensions are: " << dimensions.width << " " << dimensions.height;
+				ofLogVerbose("GrabberEx") << " supported dimensions are: " << dimensions.width << " " << dimensions.height;
 			}
 
 			// Set the new dimensions and format
 			if( bestFormat != nullptr && bestW != 0 && bestH != 0 ){
 				if( bestW != width || bestH != height ){
-					ofLogWarning("ofxAVFoundationGrabberEx") << " requested width and height aren't supported. Setting capture size to closest match: " << bestW << " by " << bestH<< std::endl;
+					ofLogWarning("GrabberEx") << " requested width and height aren't supported. Setting capture size to closest match: " << bestW << " by " << bestH<< std::endl;
 				}
 
 				[device setActiveFormat:bestFormat];
@@ -152,7 +156,7 @@ class ofxAVFoundationGrabberEx;
 				for(AVFrameRateRange * range in supportedFrameRates){
 
 					if( (floor(range.minFrameRate) <= framerate && ceil(range.maxFrameRate) >= framerate) ) {
-						ofLogVerbose("ofxAVFoundationGrabberEx") << "found good framerate range, min: " << range.minFrameRate << " max: " << range.maxFrameRate << " for requested fps: " << framerate;
+						ofLogVerbose("GrabberEx") << "found good framerate range, min: " << range.minFrameRate << " max: " << range.maxFrameRate << " for requested fps: " << framerate;
 						desiredRange = range;
 						numMatch++;
 					}
@@ -163,7 +167,7 @@ class ofxAVFoundationGrabberEx;
 					device.activeVideoMinFrameDuration = desiredRange.minFrameDuration;
 					device.activeVideoMaxFrameDuration = desiredRange.maxFrameDuration;
 				}else{
-					ofLogError("ofxAVFoundationGrabberEx") << " could not set framerate to: " << framerate << ". Device supports: ";
+					ofLogError("GrabberEx") << " could not set framerate to: " << framerate << ". Device supports: ";
 					for(AVFrameRateRange * range in supportedFrameRates){
 						ofLogError() << "  framerate range of: " << range.minFrameRate <<
 					 " to " << range.maxFrameRate;
@@ -300,18 +304,6 @@ class ofxAVFoundationGrabberEx;
 	deviceID = device_;
 }
 
-+ (int)getDeviceIDByUniqueID:(const std::string &)uniqueID_ {
-    NSArray * devices = [AVCaptureDevice devicesWithMediaType:AVMediaTypeVideo];
-    int i = 0;
-    for(AVCaptureDevice *captureDevice in devices) {
-        if([captureDevice.uniqueID isEqualToString:@(uniqueID_.c_str())]) {
-            return i;
-        }
-        i++;
-    }
-    return -1;
-}
-
 #pragma mark -
 #pragma mark AVCaptureSession delegate
 - (void)captureOutput:(AVCaptureOutput *)captureOutput
@@ -331,7 +323,7 @@ didOutputSampleBuffer:(CMSampleBufferRef)sampleBuffer
 				size_t heightIn	= CVPixelBufferGetHeight(imageBuffer);
 
 				if( widthIn != grabberPtr->getWidth() || heightIn != grabberPtr->getHeight() ){
-					ofLogError("ofxAVFoundationGrabberEx") << " incoming image dimensions " << widthIn << " by " << heightIn << " don't match. This shouldn't happen! Returning.";
+					ofLogError("GrabberEx") << " incoming image dimensions " << widthIn << " by " << heightIn << " don't match. This shouldn't happen! Returning.";
 					return;
 				}
 
@@ -363,7 +355,7 @@ didOutputSampleBuffer:(CMSampleBufferRef)sampleBuffer
 					vImage_Error err;
 					err = vImageConvert_BGRA8888toRGB888(&srcImg, &dstImg, kvImageNoFlags);
 					if(err != kvImageNoError){
-						ofLogError("ofxAVFoundationGrabberEx") << "Error using accelerate to convert bgra to rgb with vImageConvert_BGRA8888toRGB888 error: " << err;
+						ofLogError("GrabberEx") << "Error using accelerate to convert bgra to rgb with vImageConvert_BGRA8888toRGB888 error: " << err;
 					}else{
 
 						if( grabberPtr->capMutex.try_lock() ){
@@ -421,321 +413,319 @@ didOutputSampleBuffer:(CMSampleBufferRef)sampleBuffer
 
 @end
 
+namespace ofx {
+    namespace AVFoundationUtils {
+        GrabberEx::GrabberEx(){
+            fps		= -1;
+            grabber_ = nil;
+            width = 0;
+            height = 0;
+            bIsInit = false;
+            pixelFormat = OF_PIXELS_RGB;
+            newFrame = false;
+            bHavePixelsChanged = false;
+            bLock = false;
+        }
 
-ofxAVFoundationGrabberEx::ofxAVFoundationGrabberEx(){
-	fps		= -1;
-    grabber_ = nil;
-    width = 0;
-    height = 0;
-	bIsInit = false;
-	pixelFormat = OF_PIXELS_RGB;
-	newFrame = false;
-	bHavePixelsChanged = false;
-	bLock = false;
-}
+        GrabberEx::~GrabberEx(){
+            ofLog(OF_LOG_VERBOSE, "GrabberEx destructor");
+            close();
+        }
 
-ofxAVFoundationGrabberEx::~ofxAVFoundationGrabberEx(){
-	ofLog(OF_LOG_VERBOSE, "ofxAVFoundationGrabberEx destructor");
-	close();
-}
-
-void ofxAVFoundationGrabberEx::clear(){
-	if( pixels.size() ){
-		pixels.clear();
-		pixelsTmp.clear();
-	}
-}
-
-void ofxAVFoundationGrabberEx::close(){
-	bLock = true;
-	if(grabber) {
-		// Stop and release the the OSXVideoGrabberEx
-		[grabber stopCapture];
-		[grabber eraseGrabberPtr];
-		[grabber release];
-		grabber_ = nil;
-	}
-	clear();
-	bIsInit = false;
-	width = 0;
-    height = 0;
-	fps		= -1;
-	pixelFormat = OF_PIXELS_RGB;
-	newFrame = false;
-	bHavePixelsChanged = false;
-	bLock = false;
-}
-
-void ofxAVFoundationGrabberEx::setDesiredFrameRate(int capRate){
-	fps = capRate;
-}
-
-bool ofxAVFoundationGrabberEx::setup(int w, int h){
-
-	if( grabber_ == nil ){
-		grabber_ = [[OSXVideoGrabberEx alloc] init];
-	}
-
-	grabber->grabberPtr = this;
-
-	if([grabber setupCapture:fps capWidth:w capHeight:h]) {
-		//update the pixel dimensions based on what the camera supports
-		width = grabber->width;
-		height = grabber->height;
-
-		clear();
-        
-		pixels.allocate(width, height, pixelFormat);
-		pixelsTmp.allocate(width, height, pixelFormat);
-
-		[grabber startCapture];
-
-		newFrame=false;
-		bIsInit = true;
-
-		return true;
-	} else {
-		return false;
-	}
-}
-
-
-bool ofxAVFoundationGrabberEx::isInitialized() const{
-    return bIsInit;
-}
-
-void ofxAVFoundationGrabberEx::update(){
-	newFrame = false;
-
-	if(bHavePixelsChanged) {
-        std::lock_guard<std::mutex> _{capMutex};
-        pixels = pixelsTmp;
-        bHavePixelsChanged = false;
-		newFrame = true;
-	}
-}
-
-ofPixels & ofxAVFoundationGrabberEx::getPixels(){
-	return pixels;
-}
-
-const ofPixels & ofxAVFoundationGrabberEx::getPixels() const{
-	return pixels;
-}
-
-bool ofxAVFoundationGrabberEx::isFrameNew() const{
-	return newFrame;
-}
-
-void ofxAVFoundationGrabberEx::updatePixelsCB(){
-	//TODO: does this need a mutex? or some thread protection?
-	bHavePixelsChanged = true;
-}
-
-std::vector <ofVideoDevice> ofxAVFoundationGrabberEx::listDevices() const{
-	std::vector <std::string> devList = [grabber listDevices];
-
-    std::vector <ofVideoDevice> devices;
-    for(int i = 0; i < devList.size(); i++){
-        ofVideoDevice vd;
-        vd.deviceName = devList[i];
-        vd.id = i;
-        vd.bAvailable = true;
-        devices.push_back(vd);
-    }
-
-    return devices;
-}
-
-void ofxAVFoundationGrabberEx::setDeviceID(int deviceID) {
-	if(grabber_ == nil) {
-		grabber_ = [[OSXVideoGrabberEx alloc] init];
-	}
-	[grabber setDevice:deviceID];
-	device = deviceID;
-}
-
-void ofxAVFoundationGrabberEx::setDeviceUniqueID(const std::string &uniqueID) {
-    setDeviceID(getDeviceIDByUniqueID(uniqueID));
-}
-
-int ofxAVFoundationGrabberEx::getDeviceIDByUniqueID(const std::string &uniqueID) const {
-    int device_id = [OSXVideoGrabberEx getDeviceIDByUniqueID:uniqueID];
-    if(device_id == -1) {
-        ofLogWarning("ofxAVFoundationGrabberEx") << "Unique ID \"" << uniqueID << "\" not found.";
-        return 0;
-    }
-    return device_id;
-}
-
-bool ofxAVFoundationGrabberEx::setPixelFormat(ofPixelFormat PixelFormat) {
-	if(PixelFormat == OF_PIXELS_RGB){
-		pixelFormat = PixelFormat;
-		return true;
-	} else if(PixelFormat == OF_PIXELS_RGBA){
-		pixelFormat = PixelFormat;
-		return true;
-	} else if(PixelFormat == OF_PIXELS_BGRA){
-		pixelFormat = PixelFormat;
-		return true;
-	}
-	return false;
-}
-
-ofPixelFormat ofxAVFoundationGrabberEx::getPixelFormat() const{
-	return pixelFormat;
-}
-
-namespace bbb {
-    struct avcapturedevice_configure_lock {
-        avcapturedevice_configure_lock(AVCaptureDevice *device) {
-            this->device = device;
-            NSError *err = nil;
-            [this->device lockForConfiguration:&err];
-            if(err) {
-                ofLogError("ofxAVFoundationGrabberEx") << err.description.UTF8String;
+        void GrabberEx::clear(){
+            if( pixels.size() ){
+                pixels.clear();
+                pixelsTmp.clear();
             }
         }
-        ~avcapturedevice_configure_lock() {
-            [device unlockForConfiguration];
+
+        void GrabberEx::close(){
+            bLock = true;
+            if(grabber) {
+                // Stop and release the the OSXVideoGrabberEx
+                [grabber stopCapture];
+                [grabber eraseGrabberPtr];
+                [grabber release];
+                grabber_ = nil;
+            }
+            clear();
+            bIsInit = false;
+            width = 0;
+            height = 0;
+            fps		= -1;
+            pixelFormat = OF_PIXELS_RGB;
+            newFrame = false;
+            bHavePixelsChanged = false;
+            bLock = false;
         }
-        AVCaptureDevice *device;
-    };
-};
+
+        void GrabberEx::setDesiredFrameRate(int capRate){
+            fps = capRate;
+        }
+
+        bool GrabberEx::setup(int w, int h){
+
+            if( grabber_ == nil ){
+                grabber_ = [[OSXVideoGrabberEx alloc] init];
+            }
+
+            grabber->grabberPtr = this;
+
+            if([grabber setupCapture:fps capWidth:w capHeight:h]) {
+                //update the pixel dimensions based on what the camera supports
+                width = grabber->width;
+                height = grabber->height;
+
+                clear();
+                
+                pixels.allocate(width, height, pixelFormat);
+                pixelsTmp.allocate(width, height, pixelFormat);
+
+                [grabber startCapture];
+
+                newFrame=false;
+                bIsInit = true;
+
+                return true;
+            } else {
+                return false;
+            }
+        }
+
+
+        bool GrabberEx::isInitialized() const{
+            return bIsInit;
+        }
+
+        void GrabberEx::update(){
+            newFrame = false;
+
+            if(bHavePixelsChanged) {
+                std::lock_guard<std::mutex> _{capMutex};
+                pixels = pixelsTmp;
+                bHavePixelsChanged = false;
+                newFrame = true;
+            }
+        }
+
+        ofPixels & GrabberEx::getPixels(){
+            return pixels;
+        }
+
+        const ofPixels & GrabberEx::getPixels() const{
+            return pixels;
+        }
+
+        bool GrabberEx::isFrameNew() const{
+            return newFrame;
+        }
+
+        void GrabberEx::updatePixelsCB(){
+            //TODO: does this need a mutex? or some thread protection?
+            bHavePixelsChanged = true;
+        }
+
+        std::vector <ofVideoDevice> GrabberEx::listDevices() const{
+            std::vector <std::string> devList = [grabber listDevices];
+
+            std::vector <ofVideoDevice> devices;
+            for(int i = 0; i < devList.size(); i++){
+                ofVideoDevice vd;
+                vd.deviceName = devList[i];
+                vd.id = i;
+                vd.bAvailable = true;
+                devices.push_back(vd);
+            }
+
+            return devices;
+        }
+
+        void GrabberEx::setDeviceID(int deviceID) {
+            if(grabber_ == nil) {
+                grabber_ = [[OSXVideoGrabberEx alloc] init];
+            }
+            [grabber setDevice:deviceID];
+            device = deviceID;
+        }
+
+        void GrabberEx::setDeviceUniqueID(const std::string &uniqueID) {
+            setDeviceID(getDeviceIDByUniqueID(uniqueID));
+        }
+
+        int GrabberEx::getDeviceIDByUniqueID(const std::string &uniqueID) const {
+            return ofx::AVFoundationUtils::getDeviceIDFromUniqueID(uniqueID);
+        }
+
+        bool GrabberEx::setPixelFormat(ofPixelFormat PixelFormat) {
+            if(PixelFormat == OF_PIXELS_RGB){
+                pixelFormat = PixelFormat;
+                return true;
+            } else if(PixelFormat == OF_PIXELS_RGBA){
+                pixelFormat = PixelFormat;
+                return true;
+            } else if(PixelFormat == OF_PIXELS_BGRA){
+                pixelFormat = PixelFormat;
+                return true;
+            }
+            return false;
+        }
+
+        ofPixelFormat GrabberEx::getPixelFormat() const{
+            return pixelFormat;
+        }
+
+        namespace bbb {
+            struct avcapturedevice_configure_lock {
+                avcapturedevice_configure_lock(AVCaptureDevice *device) {
+                    this->device = device;
+                    NSError *err = nil;
+                    [this->device lockForConfiguration:&err];
+                    if(err) {
+                        ofLogError("GrabberEx") << err.description.UTF8String;
+                    }
+                }
+                ~avcapturedevice_configure_lock() {
+                    [device unlockForConfiguration];
+                }
+                AVCaptureDevice *device;
+            };
+        };
 
 #define Device (grabber->device)
 #define IfNullDevice(...)\
-if(grabber_ == nil || Device == nil) {\
-    ofLogWarning("ofxAVFoundationGrabberEx") << "device is not initialized?";\
-    return __VA_ARGS__;\
-}
+        if(grabber_ == nil || Device == nil) {\
+            ofLogWarning("GrabberEx") << "device is not initialized?";\
+            return __VA_ARGS__;\
+        }
 #define Lock bbb::avcapturedevice_configure_lock avcapturedevice_configure_lock{Device};
 
-std::string ofxAVFoundationGrabberEx::getUniqueID() const {
-    IfNullDevice("");
-    return Device.uniqueID.UTF8String;
-}
+        std::string GrabberEx::getUniqueID() const {
+            IfNullDevice("");
+            return Device.uniqueID.UTF8String;
+        }
 
-std::string ofxAVFoundationGrabberEx::getModelID() const {
-    IfNullDevice("");
-    return Device.modelID.UTF8String;
-}
+        std::string GrabberEx::getModelID() const {
+            IfNullDevice("");
+            return Device.modelID.UTF8String;
+        }
 
-std::string ofxAVFoundationGrabberEx::getManufacturer() const {
-    IfNullDevice("");
-    return Device.manufacturer.UTF8String;
-}
+        std::string GrabberEx::getManufacturer() const {
+            IfNullDevice("");
+            return Device.manufacturer.UTF8String;
+        }
 
-std::string ofxAVFoundationGrabberEx::getLocalizedName() const {
-    IfNullDevice("");
-    return Device.localizedName.UTF8String;
-}
+        std::string GrabberEx::getLocalizedName() const {
+            IfNullDevice("");
+            return Device.localizedName.UTF8String;
+        }
 
-bool ofxAVFoundationGrabberEx::adjustingExposure() const {
-    IfNullDevice(false);
-    return Device.adjustingExposure;
-}
+        bool GrabberEx::adjustingExposure() const {
+            IfNullDevice(false);
+            return Device.adjustingExposure;
+        }
 
-CaptureExposureMode ofxAVFoundationGrabberEx::exposureMode() const {
-    IfNullDevice((CaptureExposureMode)0);
-    return (CaptureExposureMode)Device.exposureMode;
-}
+        CaptureExposureMode GrabberEx::exposureMode() const {
+            IfNullDevice((CaptureExposureMode)0);
+            return (CaptureExposureMode)Device.exposureMode;
+        }
 
-void ofxAVFoundationGrabberEx::setExposureMode(CaptureExposureMode mode) {
-    IfNullDevice();
-    if(!isExposureModeSupported(mode)) {
-        ofLogWarning("ofxAVFoundationGrabberEx") << "setExposureMode: mode " << (int)mode << " is not supported.";
-        return;
-    }
-    
-    NSError *err = nil;
-    if([Device lockForConfiguration:&err]) {
-        Device.exposureMode = (AVCaptureExposureMode)mode;
-    }
-    
-    [Device unlockForConfiguration];
-    if(err) ofLogError("ofxAVFoundationGrabberEx") << "error on setExposureMode: " << err.description.UTF8String;
-}
+        void GrabberEx::setExposureMode(CaptureExposureMode mode) {
+            IfNullDevice();
+            if(!isExposureModeSupported(mode)) {
+                ofLogWarning("GrabberEx") << "setExposureMode: mode " << (int)mode << " is not supported.";
+                return;
+            }
+            
+            NSError *err = nil;
+            if([Device lockForConfiguration:&err]) {
+                Device.exposureMode = (AVCaptureExposureMode)mode;
+            }
+            
+            [Device unlockForConfiguration];
+            if(err) ofLogError("GrabberEx") << "error on setExposureMode: " << err.description.UTF8String;
+        }
 
-bool ofxAVFoundationGrabberEx::isExposureModeSupported(CaptureExposureMode mode) const {
-    IfNullDevice(false);
-    return [Device isExposureModeSupported:(AVCaptureExposureMode)mode];
-}
+        bool GrabberEx::isExposureModeSupported(CaptureExposureMode mode) const {
+            IfNullDevice(false);
+            return [Device isExposureModeSupported:(AVCaptureExposureMode)mode];
+        }
 
-CaptureWhiteBalanceMode ofxAVFoundationGrabberEx::whiteBalanceMode() const {
-    IfNullDevice((CaptureWhiteBalanceMode)0);
-    return (CaptureWhiteBalanceMode)Device.whiteBalanceMode;
-}
+        CaptureWhiteBalanceMode GrabberEx::whiteBalanceMode() const {
+            IfNullDevice((CaptureWhiteBalanceMode)0);
+            return (CaptureWhiteBalanceMode)Device.whiteBalanceMode;
+        }
 
-void ofxAVFoundationGrabberEx::setWhiteBalanceMode(CaptureWhiteBalanceMode mode) {
-    IfNullDevice();
-    if(!isWhiteBalanceModeSupported(mode)) {
-        ofLogWarning("ofxAVFoundationGrabberEx") << "setWhiteBalanceMode: mode " << (int)mode << " is not supported.";
-        return;
-    }
-    
-    NSError *err = nil;
-    if([Device lockForConfiguration:&err]) {
-        Device.whiteBalanceMode = (AVCaptureWhiteBalanceMode)mode;
-    }
-    
-    [Device unlockForConfiguration];
-    if(err) ofLogError("ofxAVFoundationGrabberEx") << "error on setWhiteBalanceMode: " << err.description.UTF8String;
-}
+        void GrabberEx::setWhiteBalanceMode(CaptureWhiteBalanceMode mode) {
+            IfNullDevice();
+            if(!isWhiteBalanceModeSupported(mode)) {
+                ofLogWarning("GrabberEx") << "setWhiteBalanceMode: mode " << (int)mode << " is not supported.";
+                return;
+            }
+            
+            NSError *err = nil;
+            if([Device lockForConfiguration:&err]) {
+                Device.whiteBalanceMode = (AVCaptureWhiteBalanceMode)mode;
+            }
+            
+            [Device unlockForConfiguration];
+            if(err) ofLogError("GrabberEx") << "error on setWhiteBalanceMode: " << err.description.UTF8String;
+        }
 
-bool ofxAVFoundationGrabberEx::isWhiteBalanceModeSupported(CaptureWhiteBalanceMode mode) const {
-    IfNullDevice(false);
-    return [Device isWhiteBalanceModeSupported:(AVCaptureWhiteBalanceMode)mode];
-}
+        bool GrabberEx::isWhiteBalanceModeSupported(CaptureWhiteBalanceMode mode) const {
+            IfNullDevice(false);
+            return [Device isWhiteBalanceModeSupported:(AVCaptureWhiteBalanceMode)mode];
+        }
 
-bool ofxAVFoundationGrabberEx::isAdjustingWhiteBalance() const {
-    IfNullDevice(false);
-    return Device.isAdjustingWhiteBalance;
-}
+        bool GrabberEx::isAdjustingWhiteBalance() const {
+            IfNullDevice(false);
+            return Device.isAdjustingWhiteBalance;
+        }
 
-CaptureFocusMode ofxAVFoundationGrabberEx::focusMode() const {
-    IfNullDevice((CaptureFocusMode)0);
-    return (CaptureFocusMode)Device.focusMode;
-}
+        CaptureFocusMode GrabberEx::focusMode() const {
+            IfNullDevice((CaptureFocusMode)0);
+            return (CaptureFocusMode)Device.focusMode;
+        }
 
-bool ofxAVFoundationGrabberEx::isFocusModeSupported(CaptureFocusMode mode) const {
-    IfNullDevice(false);
-    return [Device isFocusModeSupported:(AVCaptureFocusMode)mode];
-}
+        bool GrabberEx::isFocusModeSupported(CaptureFocusMode mode) const {
+            IfNullDevice(false);
+            return [Device isFocusModeSupported:(AVCaptureFocusMode)mode];
+        }
 
-ofVec2f ofxAVFoundationGrabberEx::focusPointOfInterest() const {
-    IfNullDevice({-1.0f, -1.0f});
-    return ofVec2f(
-        Device.focusPointOfInterest.x,
-        Device.focusPointOfInterest.y
-    );
-}
+        ofVec2f GrabberEx::focusPointOfInterest() const {
+            IfNullDevice({-1.0f, -1.0f});
+            return ofVec2f(
+                Device.focusPointOfInterest.x,
+                Device.focusPointOfInterest.y
+            );
+        }
 
-void ofxAVFoundationGrabberEx::setFocusPointOfInterest(ofVec2f focusPoint) {
-    IfNullDevice();
-    if(!isFocusPointOfInterestSupported()) {
-        ofLogWarning("ofxAVFoundationGrabberEx") << "setFocusPointOfInterest is not supported.";
-        return;
-    }
-    
-    NSError *err = nil;
-    if([Device lockForConfiguration:&err]) {
-        Device.focusPointOfInterest = CGPointMake(focusPoint.x, focusPoint.y);
-    }
-    
-    [Device unlockForConfiguration];
-    if(err) ofLogError("ofxAVFoundationGrabberEx") << "error on setFocusPointOfInterest: " << err.description.UTF8String;
-}
+        void GrabberEx::setFocusPointOfInterest(ofVec2f focusPoint) {
+            IfNullDevice();
+            if(!isFocusPointOfInterestSupported()) {
+                ofLogWarning("GrabberEx") << "setFocusPointOfInterest is not supported.";
+                return;
+            }
+            
+            NSError *err = nil;
+            if([Device lockForConfiguration:&err]) {
+                Device.focusPointOfInterest = CGPointMake(focusPoint.x, focusPoint.y);
+            }
+            
+            [Device unlockForConfiguration];
+            if(err) ofLogError("GrabberEx") << "error on setFocusPointOfInterest: " << err.description.UTF8String;
+        }
 
-bool ofxAVFoundationGrabberEx::isFocusPointOfInterestSupported() const {
-    IfNullDevice(false);
-    return Device.isFocusPointOfInterestSupported;
-}
+        bool GrabberEx::isFocusPointOfInterestSupported() const {
+            IfNullDevice(false);
+            return Device.isFocusPointOfInterestSupported;
+        }
 
-bool ofxAVFoundationGrabberEx::isAdjustingFocus() const {
-    IfNullDevice(false);
-    return Device.isAdjustingFocus;
-}
+        bool GrabberEx::isAdjustingFocus() const {
+            IfNullDevice(false);
+            return Device.isAdjustingFocus;
+        }
 
-#undef IfNullDevice
-#undef Device
+        #undef IfNullDevice
+        #undef Device
+    };
+};
